@@ -13,41 +13,30 @@
 - `canistergeek_ic_rust::monitor` - stored data for cycles and memory consumes ~6.5Mb per year per canister (assuming data points every 5 minutes).
 - `canistergeek_ic_rust::logger` - depends on the length of messages and their number. (There is an [issue](https://github.com/dfinity/cdk-rs/issues/212) with heap memory size after upgrade).
 
+## API change in 0.6.0 version
+> introduced stable-memory implementation
+## API change in 0.5.0 version
+> Updated ic-cdk
 ## API change in 0.4.4 version
-
 > Updated ic-cdk in order to resolve ic-cdk-executor conflicts
-
 ## API change in 0.4.3 version
-
 > Up dependencies from all libraries
-
 ## API change in 0.4.2 version
-
 > Up dependencies from num-bigint, num-trait
-
 ## API change in 0.4.1 version
-
 > Up dependencies from candid and ic_cdk
-
 ## API change in 0.3.3 version
-
 > Down dependencies from candid and ic_cdk
-
 ## API change in 0.3.2 version
-
 > Up dependencies from candid and ic_cdk
-
 ## API change in 0.3.1 version
-
 > Starting from version 0.3.1 existing `getCanistergeekInformation` method will replace `getCanisterLog` method
-
 ## API change in 0.3.0 version
-
-> Starting from version 0.3.0 your canister need to supported new API methods:
+> Your canister need to support new API methods:
 > - `updateCanistergeekInformation` method will replace `collectCanisterMetrics` method
 > - `getCanistergeekInformation` method will replace `getCanisterMetrics` and `getCanisterLog` methods
-
-New methods provide an opportunity to evolve API in the future.
+> 
+> New methods provide an opportunity to evolve API in the future.
 
 ## Metrics
 
@@ -88,14 +77,21 @@ Default number of messages (10000) can be overridden with corresponding method i
 
 ## Installation
 
-In file `Cargo.toml` your project, add dependency on crate:
+In file `Cargo.toml` of your project, add dependency on crate.
+
+Heap-backed storage:
 ```toml
-canistergeek_ic_rust = "0.4.4"
+canistergeek_ic_rust = "0.6.0"
+```
+
+Stable memory storage via `ic-stable-structures`:
+```toml
+canistergeek_ic_rust = { version = "0.6.0", features = ["stable-memory"] }
 ```
 
 ## Usage
 
-Implement public methods in the canister in order to query collected data and optionally force collecting the data
+Implement public methods in the canister in order to query collected data and optionally force collecting the data.
 
 ```rust
 
@@ -105,7 +101,9 @@ Implement public methods in the canister in order to query collected data and op
 /// Called from browser.
 ///
 #[ic_cdk_macros::query(name = "getCanistergeekInformation")]
-pub async fn get_canistergeek_information(request: canistergeek_ic_rust::api_type::GetInformationRequest) -> canistergeek_ic_rust::api_type::GetInformationResponse<'static> {
+pub fn get_canistergeek_information(
+    request: canistergeek_ic_rust::api_type::GetInformationRequest,
+) -> canistergeek_ic_rust::api_type::GetInformationResponse {
     validate_caller();
     canistergeek_ic_rust::get_information(request)
 }
@@ -114,12 +112,14 @@ pub async fn get_canistergeek_information(request: canistergeek_ic_rust::api_typ
 /// Called from browser or any canister `update` method.
 ///
 #[ic_cdk_macros::update(name = "updateCanistergeekInformation")]
-pub async fn update_canistergeek_information(request: canistergeek_ic_rust::api_type::UpdateInformationRequest) -> () {
+pub fn update_canistergeek_information(
+    request: canistergeek_ic_rust::api_type::UpdateInformationRequest,
+) {
     validate_caller();
     canistergeek_ic_rust::update_information(request);
 }
 
-fn validate_caller() -> () {
+fn validate_caller() {
     // limit access here!
 }
 ```
@@ -128,10 +128,14 @@ fn validate_caller() -> () {
 
 Call `canistergeek_ic_rust::monitor::collect_metrics()` (it is a shortcut for generic method `canistergeek_ic_rust::update_information(canistergeek_ic_rust::api_type::UpdateInformationRequest {metrics=Some(canistergeek_ic_rust::api_type::CollectMetricsRequestType::normal)});`) method in all "update" methods in your canister in order to automatically collect all data.
 
-### Add post/pre upgrade hooks
+### Heap-backed integration
 
-Implement pre/post upgrade hooks.
-This step is necessary to save collected data between canister upgrades.
+When `stable-memory` feature is disabled, the library keeps data in heap memory.
+To preserve it across upgrades, add pre/post-upgrade hooks:
+
+- `canistergeek_ic_rust::monitor::PreUpgradeStableData = (u8, DayDataTable)`
+- `canistergeek_ic_rust::logger::PreUpgradeStableData = (u8, LogMessageStorage)`
+- `pre_upgrade_stable_data()` returns owned snapshots, so they can be passed directly to `stable_save`
 
 ```rust
 #[ic_cdk_macros::pre_upgrade]
@@ -153,6 +157,59 @@ fn post_upgrade_function() {
     }
 }
 ```
+
+### Stable memory integration
+
+When `stable-memory` is enabled, the project that uses this library must provide stable memories.
+Use your own `MemoryManager` and assign unique `MemoryId` values for:
+- monitor storage
+- logger messages storage
+- logger metadata storage
+
+Then initialize both modules during canister startup and again in `post_upgrade`.
+
+```rust
+use ic_stable_structures::memory_manager::{MemoryId, MemoryManager};
+use ic_stable_structures::DefaultMemoryImpl;
+use std::cell::RefCell;
+
+const MONITOR_MEMORY_ID: u8 = 0;
+const LOGGER_MESSAGES_MEMORY_ID: u8 = 1;
+const LOGGER_METADATA_MEMORY_ID: u8 = 2;
+
+thread_local! {
+    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
+        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
+}
+
+fn init_canistergeek_stable_memory() {
+    MEMORY_MANAGER.with(|memory_manager| {
+        let memory_manager = memory_manager.borrow();
+
+        canistergeek_ic_rust::monitor::init_stable_storage(
+            memory_manager.get(MemoryId::new(MONITOR_MEMORY_ID)),
+        );
+
+        canistergeek_ic_rust::logger::init_stable_storage(
+            memory_manager.get(MemoryId::new(LOGGER_MESSAGES_MEMORY_ID)),
+            memory_manager.get(MemoryId::new(LOGGER_METADATA_MEMORY_ID)),
+            10_000,
+        );
+    });
+}
+
+#[ic_cdk_macros::init]
+fn init() {
+    init_canistergeek_stable_memory();
+}
+
+#[ic_cdk_macros::post_upgrade]
+fn post_upgrade() {
+    init_canistergeek_stable_memory();
+}
+```
+
+In this mode `pre_upgrade_stable_data()` / `post_upgrade_stable_data()` are not used.
 
 ### Add candid api declaration to `did` file
 
@@ -316,7 +373,7 @@ service : {
 
 ```rust
 fn validate_caller() {
-    match ic_cdk::export::Principal::from_text("hozae-racaq-aaaaa-aaaaa-c") {
+    match candid::Principal::from_text("hozae-racaq-aaaaa-aaaaa-c") {
         Ok(caller) if caller == ic_cdk::caller() => (),
         _ => ic_cdk::trap("Invalid caller")
     }
@@ -324,6 +381,8 @@ fn validate_caller() {
 ```
 
 ## Full Example
+
+Heap-backed example:
 
 ```rust
 #[ic_cdk_macros::pre_upgrade]
@@ -346,28 +405,103 @@ fn post_upgrade_function() {
 }
 
 #[ic_cdk_macros::query(name = "getCanistergeekInformation")]
-pub async fn get_canistergeek_information(request: canistergeek_ic_rust::api_type::GetInformationRequest) -> canistergeek_ic_rust::api_type::GetInformationResponse<'static> {
+pub fn get_canistergeek_information(
+    request: canistergeek_ic_rust::api_type::GetInformationRequest,
+) -> canistergeek_ic_rust::api_type::GetInformationResponse {
     validate_caller();
     canistergeek_ic_rust::get_information(request)
 }
 
 #[ic_cdk_macros::update(name = "updateCanistergeekInformation")]
-pub async fn update_canistergeek_information(request: canistergeek_ic_rust::api_type::UpdateInformationRequest) -> () {
+pub fn update_canistergeek_information(
+    request: canistergeek_ic_rust::api_type::UpdateInformationRequest,
+) {
     validate_caller();
     canistergeek_ic_rust::update_information(request);
 }
 
-fn validate_caller() -> () {
-    match ic_cdk::export::Principal::from_text("hozae-racaq-aaaaa-aaaaa-c") {
+fn validate_caller() {
+    match candid::Principal::from_text("hozae-racaq-aaaaa-aaaaa-c") {
         Ok(caller) if caller == ic_cdk::caller() => (),
         _ => ic_cdk::trap("Invalid caller")
     }
 }
 
 #[ic_cdk_macros::update(name = "doThis")]
-pub async fn do_this() -> () {
+pub fn do_this() {
     canistergeek_ic_rust::monitor::collect_metrics();
     canistergeek_ic_rust::logger::log_message(String::from("do_this"));
-    // rest part of the your method...
+    // rest part of your method...
+}
+```
+
+Stable-memory example:
+
+```rust
+use ic_stable_structures::memory_manager::{MemoryId, MemoryManager};
+use ic_stable_structures::DefaultMemoryImpl;
+use std::cell::RefCell;
+
+const MONITOR_MEMORY_ID: u8 = 0;
+const LOGGER_MESSAGES_MEMORY_ID: u8 = 1;
+const LOGGER_METADATA_MEMORY_ID: u8 = 2;
+
+thread_local! {
+    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
+        RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
+}
+
+fn init_canistergeek_stable_memory() {
+    MEMORY_MANAGER.with(|memory_manager| {
+        let memory_manager = memory_manager.borrow();
+
+        canistergeek_ic_rust::monitor::init_stable_storage(
+            memory_manager.get(MemoryId::new(MONITOR_MEMORY_ID)),
+        );
+        canistergeek_ic_rust::logger::init_stable_storage(
+            memory_manager.get(MemoryId::new(LOGGER_MESSAGES_MEMORY_ID)),
+            memory_manager.get(MemoryId::new(LOGGER_METADATA_MEMORY_ID)),
+            10_000,
+        );
+    });
+}
+
+#[ic_cdk_macros::init]
+fn init() {
+    init_canistergeek_stable_memory();
+}
+
+#[ic_cdk_macros::post_upgrade]
+fn post_upgrade() {
+    init_canistergeek_stable_memory();
+}
+
+#[ic_cdk_macros::query(name = "getCanistergeekInformation")]
+pub fn get_canistergeek_information(
+    request: canistergeek_ic_rust::api_type::GetInformationRequest,
+) -> canistergeek_ic_rust::api_type::GetInformationResponse {
+    validate_caller();
+    canistergeek_ic_rust::get_information(request)
+}
+
+#[ic_cdk_macros::update(name = "updateCanistergeekInformation")]
+pub fn update_canistergeek_information(
+    request: canistergeek_ic_rust::api_type::UpdateInformationRequest,
+) {
+    validate_caller();
+    canistergeek_ic_rust::update_information(request);
+}
+
+fn validate_caller() {
+    match candid::Principal::from_text("hozae-racaq-aaaaa-aaaaa-c") {
+        Ok(caller) if caller == ic_cdk::caller() => (),
+        _ => ic_cdk::trap("Invalid caller")
+    }
+}
+
+#[ic_cdk_macros::update(name = "doThis")]
+pub fn do_this() {
+    canistergeek_ic_rust::monitor::collect_metrics();
+    canistergeek_ic_rust::logger::log_message(String::from("do_this"));
 }
 ```

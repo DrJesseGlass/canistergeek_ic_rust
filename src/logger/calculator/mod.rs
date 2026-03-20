@@ -2,7 +2,7 @@ use super::super::api_type::{
     CanisterLogMessages, CanisterLogMessagesInfo, GetLatestLogMessagesParameters,
     GetLogMessagesFilter, GetLogMessagesParameters, LogMessageData, Nanos,
 };
-use super::data_type::{LogMessage, LogMessagesSupplier};
+use crate::logger::data_type::{LogMessage, LogMessagesSupplier};
 
 mod contains_filter;
 // mod regex_filter;
@@ -31,7 +31,7 @@ pub fn get_log_messages_info(
 pub fn get_log_messages(
     log_message_supplier: &dyn LogMessagesSupplier,
     parameters: GetLogMessagesParameters,
-) -> Result<CanisterLogMessages<'_>, &'_ str> {
+) -> Result<CanisterLogMessages, &'static str> {
     iterate_log_messages_int(
         false,
         &parameters.fromTimeNanos,
@@ -44,7 +44,7 @@ pub fn get_log_messages(
 pub fn get_latest_log_messages(
     log_message_supplier: &dyn LogMessagesSupplier,
     parameters: GetLatestLogMessagesParameters,
-) -> Result<CanisterLogMessages<'_>, &'_ str> {
+) -> Result<CanisterLogMessages, &'static str> {
     iterate_log_messages_int(
         true,
         &parameters.upToTimeNanos,
@@ -54,13 +54,13 @@ pub fn get_latest_log_messages(
     )
 }
 
-fn iterate_log_messages_int<'a>(
+fn iterate_log_messages_int(
     reverse: bool,
     time: &Option<Nanos>,
     count: usize,
     filter: Option<GetLogMessagesFilter>,
-    log_message_supplier: &'a dyn LogMessagesSupplier,
-) -> Result<CanisterLogMessages<'a>, &'a str> {
+    log_message_supplier: &dyn LogMessagesSupplier,
+) -> Result<CanisterLogMessages, &'static str> {
     if count == 0 || count > MAX_CHUNK_SIZE {
         return Err("Wrong count number");
     }
@@ -73,7 +73,7 @@ fn iterate_log_messages_int<'a>(
 
     let iterator = iterator_box.as_mut();
 
-    let mut data: Vec<&'a LogMessageData> = Vec::with_capacity(count);
+    let mut data: Vec<LogMessageData> = Vec::with_capacity(count);
     let mut message_time_nanos: Option<Nanos> = None;
 
     match filter {
@@ -87,7 +87,7 @@ fn iterate_log_messages_int<'a>(
 
                 message_time_nanos = Some(message.timeNanos);
 
-                if !filter_trait.check_match(message) {
+                if !filter_trait.check_match(&message) {
                     continue;
                 }
 
@@ -121,7 +121,7 @@ trait Filter {
     fn is_stop(&self) -> bool;
 }
 
-fn build_filter<'a>(filter: GetLogMessagesFilter) -> Result<Box<dyn Filter>, &'a str> {
+fn build_filter(filter: GetLogMessagesFilter) -> Result<Box<dyn Filter>, &'static str> {
     match &filter.messageContains {
         Some(contains_text) => {
             let contains_filter = contains_filter::MessageContainsFilter::create(

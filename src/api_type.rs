@@ -12,11 +12,11 @@ pub struct GetInformationRequest {
 
 #[allow(non_snake_case)]
 #[derive(Debug, CandidType)]
-pub struct GetInformationResponse<'a> {
+pub struct GetInformationResponse {
     pub version: Option<candid::Nat>,
     pub status: Option<StatusResponse>,
-    pub metrics: Option<MetricsResponse<'a>>,
-    pub logs: Option<CanisterLogResponse<'a>>,
+    pub metrics: Option<MetricsResponse>,
+    pub logs: Option<CanisterLogResponse>,
 }
 
 #[allow(non_snake_case)]
@@ -43,8 +43,8 @@ pub struct MetricsRequest {
 
 #[allow(non_snake_case)]
 #[derive(Debug, CandidType)]
-pub struct MetricsResponse<'a> {
-    pub metrics: Option<CanisterMetrics<'a>>,
+pub struct MetricsResponse {
+    pub metrics: Option<CanisterMetrics>,
 }
 
 #[allow(non_snake_case)]
@@ -79,15 +79,15 @@ pub enum MetricsGranularity {
 pub type Millis = candid::Nat;
 
 #[derive(Debug, CandidType)]
-pub struct CanisterMetrics<'a> {
-    pub data: CanisterMetricsData<'a>,
+pub struct CanisterMetrics {
+    pub data: CanisterMetricsData,
 }
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, CandidType)]
-pub enum CanisterMetricsData<'a> {
+pub enum CanisterMetricsData {
     daily(Vec<DailyMetricsData>),
-    hourly(Vec<HourlyMetricsData<'a>>),
+    hourly(Vec<HourlyMetricsData>),
 }
 
 #[allow(non_snake_case)]
@@ -111,18 +111,18 @@ pub struct NumericEntity {
 
 #[allow(non_snake_case)]
 #[derive(Debug, CandidType)]
-pub struct HourlyMetricsData<'a> {
+pub struct HourlyMetricsData {
     pub timeMillis: candid::Int,
-    pub canisterCycles: CanisterCyclesAggregatedData<'a>,
-    pub canisterHeapMemorySize: CanisterHeapMemoryAggregatedData<'a>,
-    pub canisterMemorySize: CanisterMemoryAggregatedData<'a>,
-    pub updateCalls: UpdateCallsAggregatedData<'a>,
+    pub canisterCycles: CanisterCyclesAggregatedData,
+    pub canisterHeapMemorySize: CanisterHeapMemoryAggregatedData,
+    pub canisterMemorySize: CanisterMemoryAggregatedData,
+    pub updateCalls: UpdateCallsAggregatedData,
 }
 
-pub type CanisterCyclesAggregatedData<'a> = &'a Vec<u64>;
-pub type CanisterMemoryAggregatedData<'a> = &'a Vec<u64>;
-pub type CanisterHeapMemoryAggregatedData<'a> = &'a Vec<u64>;
-pub type UpdateCallsAggregatedData<'a> = &'a Vec<u64>;
+pub type CanisterCyclesAggregatedData = Vec<u64>;
+pub type CanisterMemoryAggregatedData = Vec<u64>;
+pub type CanisterHeapMemoryAggregatedData = Vec<u64>;
+pub type UpdateCallsAggregatedData = Vec<u64>;
 
 // LOG messages
 
@@ -138,9 +138,9 @@ pub enum CanisterLogRequest {
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, CandidType)]
-pub enum CanisterLogResponse<'a> {
+pub enum CanisterLogResponse {
     messagesInfo(CanisterLogMessagesInfo),
-    messages(CanisterLogMessages<'a>),
+    messages(CanisterLogMessages),
 }
 
 #[allow(non_snake_case)]
@@ -169,8 +169,8 @@ pub struct GetLatestLogMessagesParameters {
 
 #[allow(non_snake_case)]
 #[derive(Debug, CandidType)]
-pub struct CanisterLogMessages<'a> {
-    pub data: Vec<&'a LogMessageData>,
+pub struct CanisterLogMessages {
+    pub data: Vec<LogMessageData>,
     pub lastAnalyzedMessageTimeNanos: Option<Nanos>,
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "canistergeek_ic_rust"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "A tool for Internet Computer to track your project canisters cycles and memory status."
 license = "MIT"
@@ -16,3 +16,8 @@ chrono = {version = "0.4.33", default-features = false, features = ["clock", "st
 num-bigint = "0.4.4"
 num-traits = "0.2.18"
 #regex = "1.5.6"
+ic-stable-structures = { version = "0.7.2", optional = true }
+
+[features]
+default = []
+stable-memory = ["ic-stable-structures"]
