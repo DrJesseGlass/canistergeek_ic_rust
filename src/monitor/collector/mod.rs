@@ -1,6 +1,6 @@
 use chrono::prelude::*;
 
-use super::data_type::*;
+use crate::monitor::data_type::{DayData, DayDataStorage};
 
 const INTERVAL_IN_SECONDS: usize = 5 * 60;
 const DAY_SECONDS: usize = 24 * 60 * 60;
@@ -34,10 +34,10 @@ pub fn collect_canister_metrics<F>(
                 day_data,
             );
         }
-        Some(day_data) => {
-            let cell = get_cell(day_data, data_time);
+        Some(mut day_data) => {
+            let cell = get_cell(&day_data, data_time);
             if day_data.get_update_calls_data()[cell] == 0 {
-                init_cell(day_data, &cell, canister_info_supplier);
+                init_cell(&mut day_data, &cell, canister_info_supplier);
             } else {
                 day_data.increment_update_calls(&cell);
                 if force_set_info {
@@ -50,6 +50,13 @@ pub fn collect_canister_metrics<F>(
                     );
                 }
             }
+
+            storage.store_day_data(
+                &data_time.year(),
+                &data_time.month(),
+                &data_time.day(),
+                day_data,
+            );
         }
     }
 }

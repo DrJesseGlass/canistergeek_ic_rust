@@ -1,5 +1,5 @@
 use super::super::api_type;
-use super::data_type;
+use crate::monitor::data_type::DayDataReader;
 use chrono::prelude::*;
 use num_traits::ToPrimitive;
 
@@ -8,10 +8,10 @@ mod day_iterator;
 const HOURLY_MAX_DAYS: usize = 9;
 const DAILY_MAX_DAYS: usize = 365;
 
-pub fn get_canister_metrics<'a>(
+pub fn get_canister_metrics(
     parameters: &api_type::GetMetricsParameters,
-    data_supplier: &'a dyn data_type::DayDataInfoSupplier,
-) -> Result<api_type::CanisterMetricsData<'a>, &'a str> {
+    data_supplier: &dyn DayDataReader,
+) -> Result<api_type::CanisterMetricsData, &'static str> {
     let date_from = parameters.dateFromMillis.0.to_u64().unwrap() as i64;
     let date_to = parameters.dateToMillis.0.to_u64().unwrap() as i64;
 
@@ -23,13 +23,15 @@ pub fn get_canister_metrics<'a>(
                 .take(HOURLY_MAX_DAYS)
                 .filter_map(|date| {
                     data_supplier
-                        .get_day_data_info(&date.year(), &date.month(), &date.day())
+                        .get_day_data(&date.year(), &date.month(), &date.day())
                         .map(|data| api_type::HourlyMetricsData {
                             timeMillis: candid::Int::from(date.timestamp_millis()),
-                            canisterCycles: data.get_canister_cycles_data(),
-                            canisterHeapMemorySize: data.get_canister_heap_memory_size_data(),
-                            canisterMemorySize: data.get_canister_memory_size_data(),
-                            updateCalls: data.get_update_calls_data(),
+                            canisterCycles: data.get_canister_cycles_data().clone(),
+                            canisterHeapMemorySize: data
+                                .get_canister_heap_memory_size_data()
+                                .clone(),
+                            canisterMemorySize: data.get_canister_memory_size_data().clone(),
+                            updateCalls: data.get_update_calls_data().clone(),
                         })
                 })
                 .collect(),
@@ -39,7 +41,7 @@ pub fn get_canister_metrics<'a>(
                 .take(DAILY_MAX_DAYS)
                 .filter_map(|date| {
                     data_supplier
-                        .get_day_data_info(&date.year(), &date.month(), &date.day())
+                        .get_day_data(&date.year(), &date.month(), &date.day())
                         .map(|data| api_type::DailyMetricsData {
                             timeMillis: candid::Int::from(date.timestamp_millis()),
                             canisterCycles: calculate_numeric_metrics_entity(
@@ -59,7 +61,7 @@ pub fn get_canister_metrics<'a>(
     }
 }
 
-fn calculate_numeric_metrics_entity(arr: &Vec<u64>) -> api_type::NumericEntity {
+fn calculate_numeric_metrics_entity(arr: &[u64]) -> api_type::NumericEntity {
     let array_size = arr.len();
 
     let mut sum_for_avg: u64 = 0;

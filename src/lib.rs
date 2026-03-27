@@ -16,15 +16,14 @@ pub mod monitor;
 
 const API_VERSION: u8 = 1;
 
-pub fn pre_upgrade_stable_data<'a>() -> (
-    monitor::PreUpgradeStableData<'a>,
-    logger::PreUpgradeStableData<'a>,
-) {
+#[cfg(not(feature = "stable-memory"))]
+pub fn pre_upgrade_stable_data() -> (monitor::PreUpgradeStableData, logger::PreUpgradeStableData) {
     let monitor_stable_data = monitor::pre_upgrade_stable_data();
     let logger_stable_data = logger::pre_upgrade_stable_data();
     (monitor_stable_data, logger_stable_data)
 }
 
+#[cfg(not(feature = "stable-memory"))]
 pub fn post_upgrade_stable_data(
     (monitor_stable_data, logger_stable_data): (
         monitor::PostUpgradeStableData,
@@ -44,7 +43,7 @@ pub fn update_information(request: UpdateInformationRequest) {
     }
 }
 
-pub fn get_information<'a>(request: GetInformationRequest) -> GetInformationResponse<'a> {
+pub fn get_information(request: GetInformationRequest) -> GetInformationResponse {
     let version = if request.version {
         Some(candid::Nat::from(API_VERSION))
     } else {

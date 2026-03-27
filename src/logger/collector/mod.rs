@@ -1,5 +1,5 @@
 use super::super::ic_util;
-use super::data_type::{LogMessage, LogMessagesStorage};
+use crate::logger::data_type::{LogMessage, LogMessagesStorage};
 
 pub fn store_log_message(
     storage: &mut dyn LogMessagesStorage,
@@ -37,19 +37,23 @@ fn store_log_message_int(
     storage.store_log_message(log_message);
 }
 
-fn validate_message(message: String, max_length: &usize) -> String {
-    if message.len() > *max_length {
-        String::from(&message[0..*max_length])
-    } else {
-        message
+fn validate_message(mut message: String, max_length: &usize) -> String {
+    if message.len() <= *max_length {
+        return message;
     }
+    // Find the largest valid UTF-8 boundary not exceeding max_length.
+    let mut end = *max_length;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    message.truncate(end);
+    message
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::super::logger::collector::validate_message;
-    use super::super::data_type::{LogMessage, LogMessagesStorage};
-    use crate::logger::data_type::LogMessagesInfo;
+    use crate::logger::data_type::{LogMessage, LogMessagesInfo, LogMessagesStorage};
 
     #[test]
     fn test_validate_message() {
@@ -64,6 +68,25 @@ mod tests {
         assert_eq!(
             validate_message(String::from("abcd"), &3),
             String::from("abc")
+        );
+    }
+
+    #[test]
+    fn test_validate_message_utf8() {
+        // Test that truncation doesn't panic on UTF-8 char boundaries
+        assert_eq!(
+            validate_message(String::from("Привет"), &12),
+            String::from("Привет") // 6 chars × 2 bytes = 12 bytes
+        );
+        // 6 bytes = 3 Cyrillic chars
+        assert_eq!(
+            validate_message(String::from("Привет"), &6),
+            String::from("При") // 3 Cyrillic chars = 6 bytes
+        );
+        // 7 bytes = "Hello " (6 bytes) fits, emoji (4 bytes) doesn't
+        assert_eq!(
+            validate_message(String::from("Hello 🌍"), &7),
+            String::from("Hello ") // 5 ASCII chars + space = 6 bytes
         );
     }
 
