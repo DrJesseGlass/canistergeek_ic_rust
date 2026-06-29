@@ -3,33 +3,75 @@ pub mod collector;
 pub mod data_type;
 pub mod store;
 
+use std::cell::RefCell;
+
 use super::api_type::{CanisterMetrics, GetMetricsParameters};
 use super::ic_util;
 use crate::api_type::{StatusRequest, StatusResponse};
 use collector::CanisterInfo;
-use store::Storage;
 
-pub type PreUpgradeStableData<'a> = (&'a u8, &'a store::DayDataTable);
+#[cfg(not(feature = "stable-memory"))]
+pub type PreUpgradeStableData = (u8, store::DayDataTable);
+#[cfg(not(feature = "stable-memory"))]
 pub type PostUpgradeStableData = (u8, store::DayDataTable);
 
+#[cfg(not(feature = "stable-memory"))]
 const VERSION: u8 = 1;
-static mut STORAGE: Option<Storage> = None;
 
-fn storage<'a>() -> &'a mut Storage {
-    unsafe {
-        if let Some(s) = &mut *std::ptr::addr_of_mut!(STORAGE) {
-            s
-        } else {
-            STORAGE = Some(Storage::default());
-            storage()
+thread_local! {
+    static STORAGE: RefCell<Option<store::Storage>> = const { RefCell::new(None) };
+}
+
+#[cfg(feature = "stable-memory")]
+pub fn init_stable_storage(memory: store::Memory) {
+    STORAGE.with(|storage| {
+        *storage.borrow_mut() = Some(store::Storage::new(memory));
+    });
+}
+
+fn with_storage<R>(f: impl FnOnce(&mut store::Storage) -> R) -> Option<R> {
+    STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        #[cfg(not(feature = "stable-memory"))]
+        if storage.is_none() {
+            *storage = Some(store::Storage::default());
         }
-    }
+
+        match storage.as_mut() {
+            Some(s) => Some(f(s)),
+            None => {
+                #[cfg(not(test))]
+                ic_cdk::api::debug_print(
+                    "WARNING: monitor stable storage is not initialized - metrics collection skipped",
+                );
+                #[cfg(test)]
+                eprintln!("WARNING: monitor stable storage is not initialized - metrics collection skipped");
+                None
+            }
+        }
+    })
 }
 
-pub fn pre_upgrade_stable_data<'a>() -> PreUpgradeStableData<'a> {
-    (&VERSION, storage().get_day_data_table())
+#[cfg(not(feature = "stable-memory"))]
+pub fn pre_upgrade_stable_data() -> PreUpgradeStableData {
+    STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        if storage.is_none() {
+            *storage = Some(store::Storage::default());
+        }
+
+        (
+            VERSION,
+            storage
+                .as_ref()
+                .expect("monitor storage must be initialized")
+                .get_day_data_table()
+                .clone(),
+        )
+    })
 }
 
+#[cfg(not(feature = "stable-memory"))]
 pub fn post_upgrade_stable_data((version, upgrade_data): PostUpgradeStableData) {
     if version != VERSION {
         ic_cdk::api::debug_print(std::format!(
@@ -37,9 +79,9 @@ pub fn post_upgrade_stable_data((version, upgrade_data): PostUpgradeStableData) 
             version
         ));
     } else {
-        unsafe {
-            STORAGE = Some(Storage::init(upgrade_data));
-        }
+        STORAGE.with(|storage| {
+            *storage.borrow_mut() = Some(store::Storage::init(upgrade_data));
+        });
     }
 }
 
@@ -47,24 +89,27 @@ pub fn collect_metrics() {
     collect_metrics_int(false);
 }
 
-pub fn get_metrics<'a>(parameters: &GetMetricsParameters) -> Option<CanisterMetrics<'a>> {
-    match calculator::get_canister_metrics(parameters, storage()) {
+pub fn get_metrics(parameters: &GetMetricsParameters) -> Option<CanisterMetrics> {
+    with_storage(|s| match calculator::get_canister_metrics(parameters, s) {
         Ok(data) => Some(CanisterMetrics { data }),
         Err(_) => None,
-    }
+    })
+    .flatten()
 }
 
 pub(crate) fn collect_metrics_int(force_set_info: bool) {
-    collector::collect_canister_metrics(
-        storage(),
-        ic_util::get_ic_time_nanos(),
-        force_set_info,
-        || CanisterInfo {
-            heap_memory_size: get_current_heap_memory_size(),
-            memory_size: get_current_memory_size(),
-            cycles: get_current_cycles(),
-        },
-    );
+    with_storage(|s| {
+        collector::collect_canister_metrics(
+            s,
+            ic_util::get_ic_time_nanos(),
+            force_set_info,
+            || CanisterInfo {
+                heap_memory_size: get_current_heap_memory_size(),
+                memory_size: get_current_memory_size(),
+                cycles: get_current_cycles(),
+            },
+        );
+    });
 }
 
 pub(crate) fn get_status(request: StatusRequest) -> StatusResponse {
@@ -110,11 +155,26 @@ mod tests {
     use candid::Nat;
     use chrono::prelude::*;
 
+    #[cfg(feature = "stable-memory")]
+    use ic_stable_structures::memory_manager::{MemoryId, MemoryManager};
+    #[cfg(feature = "stable-memory")]
+    use ic_stable_structures::DefaultMemoryImpl;
+
     #[test]
     fn test_metrics() {
+        #[cfg(not(feature = "stable-memory"))]
         let mut storage = super::store::Storage::default();
+        #[cfg(feature = "stable-memory")]
+        let mut storage = {
+            let memory_manager = MemoryManager::init(DefaultMemoryImpl::default());
+            super::store::Storage::new(memory_manager.get(MemoryId::new(0)))
+        };
 
-        let time_nanos = Utc.with_ymd_and_hms(2022, 01, 28, 13, 0, 0).unwrap().timestamp_nanos_opt().unwrap() as u64;
+        let time_nanos = Utc
+            .with_ymd_and_hms(2022, 01, 28, 13, 0, 0)
+            .unwrap()
+            .timestamp_nanos_opt()
+            .unwrap() as u64;
 
         collector::collect_canister_metrics(&mut storage, time_nanos, false, || {
             let heap_memory_size = 234000;
@@ -127,7 +187,11 @@ mod tests {
             }
         });
 
-        let time_nanos = Utc.with_ymd_and_hms(2022, 01, 28, 9, 0, 0).unwrap().timestamp_nanos_opt().unwrap() as u64;
+        let time_nanos = Utc
+            .with_ymd_and_hms(2022, 01, 28, 9, 0, 0)
+            .unwrap()
+            .timestamp_nanos_opt()
+            .unwrap() as u64;
 
         collector::collect_canister_metrics(&mut storage, time_nanos, false, || {
             let heap_memory_size = 1234000;
@@ -143,10 +207,14 @@ mod tests {
         let params = crate::api_type::GetMetricsParameters {
             granularity: crate::api_type::MetricsGranularity::hourly,
             dateFromMillis: Nat::from(
-                Utc.with_ymd_and_hms(2022, 01, 28, 11, 11, 11).unwrap().timestamp_millis() as u64
+                Utc.with_ymd_and_hms(2022, 01, 28, 11, 11, 11)
+                    .unwrap()
+                    .timestamp_millis() as u64,
             ),
             dateToMillis: Nat::from(
-                Utc.with_ymd_and_hms(2022, 01, 28, 11, 11, 11).unwrap().timestamp_millis() as u64
+                Utc.with_ymd_and_hms(2022, 01, 28, 11, 11, 11)
+                    .unwrap()
+                    .timestamp_millis() as u64,
             ),
         };
 
@@ -211,5 +279,14 @@ mod tests {
                 assert_eq!(hourly_data.updateCalls.get(i).unwrap(), &0_u64);
             }
         }
+    }
+
+    #[test]
+    #[cfg(feature = "stable-memory")]
+    fn test_collect_metrics_without_init_does_not_panic() {
+        // Test that calling collect_metrics before init_stable_storage()
+        // does not panic and just logs a warning
+        super::collect_metrics();
+        // If we reach here, no panic occurred
     }
 }

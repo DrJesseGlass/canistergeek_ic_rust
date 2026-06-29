@@ -1,7 +1,9 @@
 use super::super::data_type::LogMessage;
 use super::Filter;
 
-/// Implementation Filter for filter message by contains text matching
+// -------------------------------------------------------------------
+// Implementation Filter for filter message by contains text matching
+// -------------------------------------------------------------------
 
 pub struct MessageContainsFilter {
     contains_text: String,

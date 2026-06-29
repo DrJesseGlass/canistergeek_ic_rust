@@ -27,7 +27,8 @@ impl DayIterator {
         Ok(DayIterator {
             from_day: Utc.timestamp_millis_opt(from_millis).unwrap(),
             day: Utc
-                .timestamp_millis_opt(to_millis).unwrap()
+                .timestamp_millis_opt(to_millis)
+                .unwrap()
                 .date_naive()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
@@ -80,7 +81,10 @@ mod tests {
         let result = DayIterator::new_reverse(from.timestamp_millis(), to.timestamp_millis());
         let mut iter = result.unwrap();
 
-        assert_eq!(iter.next().unwrap(), to.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc());
+        assert_eq!(
+            iter.next().unwrap(),
+            to.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+        );
         assert_eq!(
             iter.next().unwrap(),
             to.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc() - Duration::days(1)

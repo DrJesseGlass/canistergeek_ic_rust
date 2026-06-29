@@ -1,46 +1,23 @@
-mod day_id;
+//! Monitor storage module
+//!
+//! This module exposes exactly one storage implementation per build:
+//! - `generic::Storage` for default builds
+//! - `stable::Storage` when the `stable-memory` feature is enabled
 
-use super::data_type::{DayData, DayDataInfo, DayDataInfoSupplier, DayDataStorage};
-use day_id::DayId;
-use std::collections::BTreeMap;
+mod base;
+#[cfg(not(feature = "stable-memory"))]
+mod generic;
 
-pub type DayDataTable = BTreeMap<DayId, DayData>;
+#[cfg(feature = "stable-memory")]
+mod stable;
 
-#[derive(Default)]
-pub struct Storage {
-    day_data_table: DayDataTable,
-}
+pub use crate::monitor::data_type::{DayData, DayDataReader, DayDataStorage};
 
-impl Storage {
-    pub fn init(day_data_table: DayDataTable) -> Self {
-        Self { day_data_table }
-    }
+// Re-export day_id type
+pub use base::DayId;
 
-    pub fn get_day_data_table(&self) -> &DayDataTable {
-        &self.day_data_table
-    }
-}
+#[cfg(not(feature = "stable-memory"))]
+pub use generic::{DayDataTable, Storage};
 
-impl DayDataInfoSupplier for Storage {
-    fn get_day_data_info(&self, year: &i32, month: &u32, day: &u32) -> Option<&dyn DayDataInfo> {
-        match day_id::to_day_id(year, month, day) {
-            Ok(day_id) => match self.day_data_table.get(&day_id) {
-                None => None,
-                Some(day_data) => Some(day_data),
-            },
-            _ => None,
-        }
-    }
-}
-
-impl DayDataStorage for Storage {
-    fn get_day_data(&mut self, year: &i32, month: &u32, day: &u32) -> Option<&mut DayData> {
-        let day_id = day_id::to_day_id(year, month, day).unwrap();
-        self.day_data_table.get_mut(&day_id)
-    }
-
-    fn store_day_data(&mut self, year: &i32, month: &u32, day: &u32, day_data: DayData) {
-        let day_id = day_id::to_day_id(year, month, day).unwrap();
-        self.day_data_table.insert(day_id, day_data);
-    }
-}
+#[cfg(feature = "stable-memory")]
+pub use stable::{Memory, Storage};
