@@ -16,7 +16,7 @@ pub fn get_ic_time_nanos() -> u64 {
 pub fn get_cycles() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        ic_cdk::api::canister_balance()
+        ic_cdk::api::canister_cycle_balance() as u64
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -27,7 +27,7 @@ pub fn get_cycles() -> u64 {
 pub fn get_stable_memory_size() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        (ic_cdk::api::stable::stable_size() as u64) * WASM_PAGE_SIZE
+        (ic_cdk::stable::stable_size() as u64) * WASM_PAGE_SIZE
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
